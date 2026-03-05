@@ -11,6 +11,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/poll', async (req, res) => {
+	if (!client.isReady()) {
+		return res.status(503).send('Discord bot not ready yet');
+	}
+
 	try {
 		await pollEvents();
 		res.send('Polled events!');
