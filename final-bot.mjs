@@ -85,6 +85,7 @@ async function createCalendarEvent(event, discordEventId) {
 		return { created: true, response: result };
 	} catch (err) {
 		if (err.code === 409) {
+			// eventId finnes allerede
 			console.log(
 				`Event already exists in calendar, skipping: ${event.name}`,
 			);
@@ -101,21 +102,6 @@ function normalizeDate(value) {
 
 function normalizeText(value) {
 	return (value || '').trim();
-}
-
-async function logAllCalendarDiscordIds() {
-	try {
-		const response = await calendar.events.list({
-			calendarId: CALENDAR_ID,
-			maxResults: 100,
-		});
-		const ids = (response.data.items || [])
-			.filter((e) => e.extendedProperties?.private?.discordEventId)
-			.map((e) => e.extendedProperties.private.discordEventId);
-		console.log('All Discord event IDs in Google Calendar at:', ids);
-	} catch (err) {
-		console.error('Error logging calendar Discord IDs:', err);
-	}
 }
 
 async function pollEvents() {
