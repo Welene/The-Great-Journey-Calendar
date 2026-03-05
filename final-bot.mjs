@@ -10,6 +10,12 @@ import express from 'express';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+let botReady = false;
+
+app.get('/', (req, res) => {
+	res.send(botReady ? 'Bot is running!' : 'Discord bot not ready yet');
+});
+
 app.get('/poll', async (req, res) => {
 	if (!client.isReady()) {
 		return res.send('Discord bot not ready yet');
@@ -22,6 +28,10 @@ app.get('/poll', async (req, res) => {
 		console.error('Error polling events via /poll:', err);
 		res.status(500).send('Error polling events');
 	}
+});
+
+app.listen(PORT, () => {
+	console.log(`Express server running on port ${PORT}`);
 });
 
 // ------------------------------------- ENV CONFIG SECTION ----------------------------------------------------------
@@ -242,11 +252,8 @@ async function pollEvents() {
 client.on('ready', async () => {
 	console.log(`Logged in as ${client.user.tag}`); // CLIENT.USER.TAG = THE BOT'S NAME
 	await pollEvents(); // FETCHES ALL EVENTS
+	botReady = true;
 	setInterval(pollEvents, 60 * 60 * 1000); // REPEATS EVERY 60 MIN (AKA UPDATES CALENDAR EVERY 60 MIN)
 });
 
 client.login(BOT_TOKEN); // LOGS BOT INTO DISCORD WITH THE BOT_TOKEN
-
-app.listen(PORT, () => {
-	console.log(`Express server running on port ${PORT}`);
-});
