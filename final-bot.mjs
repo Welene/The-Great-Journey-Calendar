@@ -4,6 +4,17 @@ import 'dotenv/config';
 import path from 'path'; // Needed to find the .json file in service-account.json
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis'; // BOT CAN TALK TO THE GOOGLE CALENDAR WITH THIS API
+import express from 'express';
+
+// EXPRESS SERVER FOR RENDER HOSTING
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => res.send('Bot is running!'));
+
+app.listen(PORT, () => {
+	console.log(`Express server running on port ${PORT}`);
+});
 
 // ------------------------------------- ENV CONFIG SECTION ----------------------------------------------------------
 const DISCORD_SERVER = '509320358642319370'; // DISCORD SERVER ID - TGJ
