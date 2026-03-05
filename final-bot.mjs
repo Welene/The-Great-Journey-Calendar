@@ -242,3 +242,7 @@ client.on('ready', async () => {
 });
 
 client.login(BOT_TOKEN); // LOGS BOT INTO DISCORD WITH THE BOT_TOKEN
+
+app.listen(PORT, () => {
+	console.log(`Express server running on port ${PORT}`);
+});
