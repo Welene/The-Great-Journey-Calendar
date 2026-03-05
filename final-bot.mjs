@@ -231,7 +231,7 @@ async function pollEvents() {
 }
 
 // ------------------------------------- BOT-READY-TO-CHECK-EVENTS SECTION -------------------------------------------
-client.on('clientReady', async () => {
+client.on('ready', async () => {
 	console.log(`Logged in as ${client.user.tag}`); // CLIENT.USER.TAG = THE BOT'S NAME
 	await pollEvents(); // FETCHES ALL EVENTS
 	setInterval(pollEvents, 60 * 60 * 1000); // REPEATS EVERY 60 MIN (AKA UPDATES CALENDAR EVERY 60 MIN)
