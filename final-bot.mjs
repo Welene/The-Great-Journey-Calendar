@@ -10,10 +10,14 @@ import express from 'express';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => res.send('Bot is running!'));
-
-app.listen(PORT, () => {
-	console.log(`Express server running on port ${PORT}`);
+app.get('/poll', async (req, res) => {
+	try {
+		await pollEvents();
+		res.send('Polled events!');
+	} catch (err) {
+		console.error('Error polling events via /poll:', err);
+		res.status(500).send('Error polling events');
+	}
 });
 
 // ------------------------------------- ENV CONFIG SECTION ----------------------------------------------------------
