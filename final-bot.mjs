@@ -105,26 +105,40 @@ function normalizeText(value) {
 }
 
 async function pollEvents() {
-	console.log('pollEvents started'); // NYTT: ser om pollEvents blir kalt
+	console.log('pollEvents STARTED');
+
 	if (!client.isReady()) {
-		console.log('Bot is not ready yet, exiting pollEvents.'); // NYTT: hvis bot ikke klar
+		console.log('Bot is not ready yet, exiting pollEvents.');
 		return;
 	}
 
 	try {
-		const guild = await client.guilds.fetch(DISCORD_SERVER); // FETCHES SERVER
-		const discordEvents = await guild.scheduledEvents.fetch(); // FETCHES ALL EVENTS
-		const discordEventIds = new Set(discordEvents.map((e) => e.id)); // MAPS OVER ALL EVENTS IN DISCORD RIGHT NOW
+		// Hent Discord server
+		const guild = await client.guilds.fetch(DISCORD_SERVER);
+		console.log(`Fetched guild: ${guild.name}`);
 
-		console.log(`Fetched guild: ${guild.name}`); // NYTT
-		console.log(`Fetched ${discordEvents.size} Discord events`); // NYTT
-		console.log('Discord event IDs:', [...discordEvents.map((e) => e.id)]); // NYTT
+		// Hent Discord events
+		const discordEvents = await guild.scheduledEvents.fetch();
+		console.log('discordEvents raw:', discordEvents);
+		console.log(`Fetched ${discordEvents.size} Discord events`);
 
+		const discordEventIds = new Set(discordEvents.map((e) => e.id));
+		console.log('Discord event IDs:', [...discordEventIds]);
 		console.log(
-			`Got ${discordEvents.size} event(s) from this Discord server:`,
+			'Discord event names:',
+			[...discordEvents.values()].map((e) => e.name),
 		);
-		console.log([...discordEvents.values()].map((e) => e.name));
+		console.log(
+			'Discord event start/end times:',
+			[...discordEvents.values()].map((e) => ({
+				id: e.id,
+				name: e.name,
+				start: e.scheduledStartAt,
+				end: e.scheduledEndAt,
+			})),
+		);
 
+		// Hent Google Calendar events
 		const googleCalendarResponse = await calendar.events.list({
 			calendarId: CALENDAR_ID,
 			maxResults: 100,
@@ -136,22 +150,46 @@ async function pollEvents() {
 
 		console.log(
 			`Found ${googleCalendarEvents.length} Discord-linked events in Google Calendar:`,
+			googleCalendarEvents.map((e) => e.summary),
 		);
-		console.log(googleCalendarEvents.map((e) => e.summary));
 
-		// -------------------------------------------- UPDATE CHANGED EVENTS SECTION -------------------------------------------------------
+		// Map over Google Calendar events
+		const googleCalendarEventMap = new Map();
+		googleCalendarEvents.forEach((event) => {
+			const discordId = event.extendedProperties?.private?.discordEventId;
+			if (discordId) googleCalendarEventMap.set(discordId, event);
+		});
 
+		// Slett events som ikke finnes i Discord
+		for (const [
+			discordId,
+			calendarEvent,
+		] of googleCalendarEventMap.entries()) {
+			if (!discordEventIds.has(discordId)) {
+				console.log(
+					`Will delete: ${calendarEvent.summary} (not in Discord anymore)`,
+				);
+				await calendar.events.delete({
+					calendarId: CALENDAR_ID,
+					eventId: calendarEvent.id,
+				});
+				console.log(`Deleted: ${calendarEvent.summary}`);
+			} else {
+				console.log(
+					`Keeps: ${calendarEvent.summary} (still exists on Discord)`,
+				);
+			}
+		}
+
+		// Loop gjennom Discord events
 		for (const [, discordEvent] of discordEvents) {
-			// LOOP THROUGH ALL EVENTS (event = has all meta data --> name, desc, start/end times)
-
 			const existingCalendarEvent = googleCalendarEventMap.get(
 				discordEvent.id,
 			);
 
 			if (existingCalendarEvent) {
-				// ----------------- NY KODE: sjekker om noe har endret seg -----------------
-
-				const needsUpdate = // CHANGES ALL TIMES TO THE SAME FORMAT WITH "normalizeText"
+				// Sjekk om noe har endret seg
+				const needsUpdate =
 					normalizeText(existingCalendarEvent.summary) !==
 						normalizeText(discordEvent.name) ||
 					normalizeText(existingCalendarEvent.description) !==
@@ -178,90 +216,101 @@ async function pollEvents() {
 						},
 					});
 
-					// ----------------- NY KODE: send oppdatering til Wix -----------------
+					// Webhook update
 					if (WEBHOOK_URL) {
-						await fetch(WEBHOOK_URL, {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								name: discordEvent.name,
-								description: discordEvent.description || '',
-								start: discordEvent.scheduledStartAt,
-								end: discordEvent.scheduledEndAt,
-								updated: true, // flagger at dette er en oppdatering
-							}),
-						});
+						const payload = {
+							name: discordEvent.name,
+							description: discordEvent.description || '',
+							start: discordEvent.scheduledStartAt,
+							end: discordEvent.scheduledEndAt,
+							updated: true,
+						};
+
+						console.log('Sending webhook update to Wix:', payload);
+
+						try {
+							const res = await fetch(WEBHOOK_URL, {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify(payload),
+							});
+							const text = await res.text();
+							console.log(
+								'Webhook response status:',
+								res.status,
+								'body:',
+								text,
+							);
+						} catch (err) {
+							console.error('Error sending webhook to Wix:', err);
+						}
 					}
 				} else {
 					console.log(`No changes for: ${discordEvent.name}`);
 				}
-
-				continue; // skip legger til nytt event
-			}
-
-			// ----------------- EKSISTERENDE LOGIKK: legg til nytt event -----------------
-			const result = await createCalendarEvent(
-				{
-					name: discordEvent.name,
-					description: discordEvent.description || '',
-					start: discordEvent.scheduledStartAt,
-					end: discordEvent.scheduledEndAt,
-				},
-				discordEvent.id,
-			);
-
-			if (result.created && WEBHOOK_URL) {
-				await fetch(WEBHOOK_URL, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({
+			} else {
+				// Opprett nytt event
+				const result = await createCalendarEvent(
+					{
 						name: discordEvent.name,
 						description: discordEvent.description || '',
 						start: discordEvent.scheduledStartAt,
 						end: discordEvent.scheduledEndAt,
-					}),
-				});
+					},
+					discordEvent.id,
+				);
+
+				if (result.created && WEBHOOK_URL) {
+					const payload = {
+						name: discordEvent.name,
+						description: discordEvent.description || '',
+						start: discordEvent.scheduledStartAt,
+						end: discordEvent.scheduledEndAt,
+					};
+
+					console.log('Sending new event webhook to Wix:', payload);
+
+					try {
+						const res = await fetch(WEBHOOK_URL, {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify(payload),
+						});
+						const text = await res.text();
+						console.log(
+							'Webhook response status:',
+							res.status,
+							'body:',
+							text,
+						);
+					} catch (err) {
+						console.error(
+							'Error sending new event webhook to Wix:',
+							err,
+						);
+					}
+				}
 			}
 		}
 	} catch (err) {
-		console.error('Cannot fetch any events on the server:', err);
+		console.error('Error inside pollEvents:', err);
 	}
 }
 
 // ------------------------------------- BOT-READY-TO-CHECK-EVENTS SECTION -------------------------------------------
-// client.on('ready', async () => {
-// 	console.log(`Logged in as ${client.user.tag}`); // CLIENT.USER.TAG = THE BOT'S NAME
+client.on('ready', async () => {
+	console.log(`Logged in as ${client.user.tag}`); // CLIENT.USER.TAG = THE BOT'S NAME
 
-// 	try {
-// 		const guild = await client.guilds.fetch(DISCORD_SERVER); // Hent server
-// 		await guild.scheduledEvents.fetch(); // Sørg for at alle events er lastet
-// 	} catch (err) {
-// 		console.error('Error fetching guild or events before first poll:', err);
-// 	}
+	try {
+		const guild = await client.guilds.fetch(DISCORD_SERVER); // Hent server
+		await guild.scheduledEvents.fetch(); // Sørg for at alle events er lastet
+	} catch (err) {
+		console.error('Error fetching guild or events before first poll:', err);
+	}
 
-// 	await pollEvents(); // FETCHES ALL EVENTS
-// 	botReady = true;
-// 	setInterval(pollEvents, 60 * 60 * 1000); // REPEATS EVERY 60 MIN (AKA UPDATES CALENDAR EVERY 60 MIN)
-// });
-
-// client.login(BOT_TOKEN); // LOGS BOT INTO DISCORD WITH THE BOT_TOKEN
-
-client.on('ready', () => {
-	console.log(`Logged in as ${client.user.tag}`);
+	await pollEvents(); // FETCHES ALL EVENTS
 	botReady = true;
-
-	pollEvents().catch(console.error);
-
-	setInterval(
-		async () => {
-			if (client.isReady()) {
-				await pollEvents().catch(console.error);
-			} else {
-				console.log('Bot not ready yet, skipping poll.');
-			}
-		},
-		60 * 60 * 1000,
-	);
+	setInterval(pollEvents, 60 * 60 * 1000); // REPEATS EVERY 60 MIN (AKA UPDATES CALENDAR EVERY 60 MIN)
 });
 
-client.login(BOT_TOKEN);
+client.login(BOT_TOKEN); // LOGS BOT INTO DISCORD WITH THE BOT_TOKEN
