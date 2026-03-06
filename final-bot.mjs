@@ -105,17 +105,26 @@ function normalizeText(value) {
 }
 
 async function pollEvents() {
+	console.log('pollEvents started'); // NYTT: ser om pollEvents blir kalt
+	if (!client.isReady()) {
+		console.log('Bot is not ready yet, exiting pollEvents.'); // NYTT: hvis bot ikke klar
+		return;
+	}
+
 	try {
 		const guild = await client.guilds.fetch(DISCORD_SERVER); // FETCHES SERVER
 		const discordEvents = await guild.scheduledEvents.fetch(); // FETCHES ALL EVENTS
 		const discordEventIds = new Set(discordEvents.map((e) => e.id)); // MAPS OVER ALL EVENTS IN DISCORD RIGHT NOW
+
+		console.log(`Fetched guild: ${guild.name}`); // NYTT
+		console.log(`Fetched ${discordEvents.size} Discord events`); // NYTT
+		console.log('Discord event IDs:', [...discordEvents.map((e) => e.id)]); // NYTT
 
 		console.log(
 			`Got ${discordEvents.size} event(s) from this Discord server:`,
 		);
 		console.log([...discordEvents.values()].map((e) => e.name));
 
-		// FETCH ALL EVENTS IN GOOGLE CALENDAR ...............(added by the bot (AKA every event with a discordEventId in extendedProperties up there ^))
 		const googleCalendarResponse = await calendar.events.list({
 			calendarId: CALENDAR_ID,
 			maxResults: 100,
@@ -129,34 +138,6 @@ async function pollEvents() {
 			`Found ${googleCalendarEvents.length} Discord-linked events in Google Calendar:`,
 		);
 		console.log(googleCalendarEvents.map((e) => e.summary));
-
-		// MAPS ALL GOOGLE CALENDAR EVENTS
-		const googleCalendarEventMap = new Map();
-		googleCalendarEvents.forEach((event) => {
-			const discordId = event.extendedProperties?.private?.discordEventId;
-			if (discordId) googleCalendarEventMap.set(discordId, event);
-		});
-
-		// DELETES EVENTS FROM CALENDAR THAT DOES NOT EXIST IN DISCORD ANYMORE
-		for (const [
-			discordId,
-			calendarEvent,
-		] of googleCalendarEventMap.entries()) {
-			if (!discordEventIds.has(discordId)) {
-				console.log(
-					`Will delete: ${calendarEvent.summary} (not in Discord anymore)`,
-				);
-				await calendar.events.delete({
-					calendarId: CALENDAR_ID,
-					eventId: calendarEvent.id,
-				});
-				console.log(`Deleted: ${calendarEvent.summary}`);
-			} else {
-				console.log(
-					`Keeps: ${calendarEvent.summary} (still exists on Discord)`,
-				);
-			}
-		}
 
 		// -------------------------------------------- UPDATE CHANGED EVENTS SECTION -------------------------------------------------------
 
@@ -248,11 +229,39 @@ async function pollEvents() {
 }
 
 // ------------------------------------- BOT-READY-TO-CHECK-EVENTS SECTION -------------------------------------------
-client.on('ready', async () => {
-	console.log(`Logged in as ${client.user.tag}`); // CLIENT.USER.TAG = THE BOT'S NAME
-	await pollEvents(); // FETCHES ALL EVENTS
+// client.on('ready', async () => {
+// 	console.log(`Logged in as ${client.user.tag}`); // CLIENT.USER.TAG = THE BOT'S NAME
+
+// 	try {
+// 		const guild = await client.guilds.fetch(DISCORD_SERVER); // Hent server
+// 		await guild.scheduledEvents.fetch(); // Sørg for at alle events er lastet
+// 	} catch (err) {
+// 		console.error('Error fetching guild or events before first poll:', err);
+// 	}
+
+// 	await pollEvents(); // FETCHES ALL EVENTS
+// 	botReady = true;
+// 	setInterval(pollEvents, 60 * 60 * 1000); // REPEATS EVERY 60 MIN (AKA UPDATES CALENDAR EVERY 60 MIN)
+// });
+
+// client.login(BOT_TOKEN); // LOGS BOT INTO DISCORD WITH THE BOT_TOKEN
+
+client.on('ready', () => {
+	console.log(`Logged in as ${client.user.tag}`);
 	botReady = true;
-	setInterval(pollEvents, 60 * 60 * 1000); // REPEATS EVERY 60 MIN (AKA UPDATES CALENDAR EVERY 60 MIN)
+
+	pollEvents().catch(console.error);
+
+	setInterval(
+		async () => {
+			if (client.isReady()) {
+				await pollEvents().catch(console.error);
+			} else {
+				console.log('Bot not ready yet, skipping poll.');
+			}
+		},
+		60 * 60 * 1000,
+	);
 });
 
-client.login(BOT_TOKEN); // LOGS BOT INTO DISCORD WITH THE BOT_TOKEN
+client.login(BOT_TOKEN);
